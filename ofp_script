@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# Default values
+DEFAULT_MAC="xx:xx:xx:xx:xx:xx"
+DEFAULT_ALIAS="XXXXX"
+VERBOSE=0
+
+# Function to print usage
+usage() {
+    echo "Usage: $0 [-m MAC_ADDRESS] [-a ALIAS] [-v]"
+    echo "  -m MAC_ADDRESS  Bluetooth MAC address (default: $DEFAULT_MAC)"
+    echo "  -a ALIAS        Alias for the Bluetooth device (default: $DEFAULT_ALIAS)"
+    echo "  -v              Verbose output"
+    exit 1
+}
+
+# Parse command-line options
+while getopts "m:a:v" opt; do
+    case $opt in
+        m) MAC="$OPTARG" ;;
+        a) ALIAS="$OPTARG" ;;
+        v) VERBOSE=1 ;;
+        *) usage ;;
+    esac
+done
+
+# Set defaults if not specified
+MAC="${MAC:-$DEFAULT_MAC}"
+ALIAS="${ALIAS:-$DEFAULT_ALIAS}"
+
+# Function to print messages if verbose mode is enabled
+verbose_echo() {
+    if [ $VERBOSE -eq 1 ]; then
+        echo "$1"
+    fi
+}
+
+# Function to clean up and exit
+cleanup() {
+    verbose_echo "Stopping scan..."
+    kill $scan_pid 2>/dev/null
+    exit
+}
+
+# Set up trap for cleanup on script exit
+trap cleanup EXIT
+
+# Function to power on Bluetooth adapter
+power_on_bluetooth() {
+    verbose_echo "Powering on Bluetooth adapter..."
+    bluetoothctl power on
+}
+
+# Function to check if Bluetooth service is running
+check_bluetooth_service() {
+    if ! systemctl is-active --quiet bluetooth; then
+        echo "Bluetooth service is not running. Please start the Bluetooth service and try again."
+        exit 1
+    fi
+}
+
+# Function to check if device is found
+device_found() {
+    bluetoothctl devices | grep -q "$MAC"
+}
+
+# Main script execution
+check_bluetooth_service
+power_on_bluetooth
+
+verbose_echo "Starting Bluetooth scan..."
+# Start scanning in background
+bluetoothctl scan on &
+scan_pid=$!
+
+# Wait for device to be discovered (timeout after 30 seconds)
+timeout=30
+while [ $timeout -gt 0 ] && ! device_found; do
+    sleep 1
+    ((timeout--))
+done
+
+verbose_echo "Stopping Bluetooth scan..."
+# Stop scanning
+kill $scan_pid 2>/dev/null
+
+# Check if device was found
+if ! device_found; then
+    echo "Device not found"
+    exit 1
+fi
+
+verbose_echo "Pairing device..."
+# Pair, connect, and set alias
+if bluetoothctl pair "$MAC"; then
+    echo "Device paired successfully"
+else
+    echo "Failed to pair with device"
+    exit 1
+fi
+
+verbose_echo "Connecting device..."
+if bluetoothctl connect "$MAC"; then
+    echo "Device connected successfully"
+else
+    echo "Failed to connect to device"
+    exit 1
+fi
+
+verbose_echo "Setting alias..."
+if bluetoothctl info "$MAC" | grep -q "Device $MAC"; then
+    bluetoothctl set-alias "$ALIAS"
+    echo "Alias set to $ALIAS"
+else
+    echo "Failed to set alias"
+    exit 1
+fi

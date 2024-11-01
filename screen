@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if gsettings get org.gnome.settings-daemon.plugins.color night-light-enabled | grep -q true; then gsettings set org.gnome.settings-daemon.plugins.color night-light-enabled false
+	echo "Night Light is now off."
+else
+	gsettings set org.gnome.settings-daemon.plugins.color night-light-enabled true
+	echo "Night Light is now on."
+    fi
